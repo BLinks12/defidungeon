@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>DeFi Dungeon</title>
+  <style>
+    /* ---------------- GLOBAL STYLE ---------------- */
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      font-family: 'Courier New', monospace;
+      background: linear-gradient(135deg, #000000, #111111);
+      color: #0f0;
+      margin: 0;
+      text-align: center;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    h1, h2, h3 {
+      animation: flicker 2s infinite;
+      margin: 10px 0;
+    }
+    @keyframes flicker {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.8; }
+      70% { opacity: 0.5; }
+    }
+    .ascii-text {
+      font-size: 1.1em;
+      white-space: pre-wrap;
+      line-height: 1.5;
+      animation: glow 1.5s infinite;
+    }
+    @keyframes glow {
+      0%, 100% { color: #0f0; }
+      50% { color: #0a0; }
+    }
+    /* -------------- CONTAINERS -------------- */
+    .container {
+      width: 90%;
+      max-width: 650px;
+      margin: 20px auto;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid #0f0;
+      border-radius: 8px;
+      box-shadow: 0 0 10px #0f0;
+      padding: 20px;
+      display: none;
+      transition: transform 0.3s ease, opacity 0.3s ease;
+    }
+    .active {
+      display: block;
+      opacity: 1;
+      transform: scale(1);
+    }
+    /* -------------- INPUTS & BUTTONS -------------- */
+    input {
+      background-color: #222;
+      color: #0f0;
+      border: 1px solid #0f0;
+      padding: 10px;
+      font-size: 1.1em;
+      width: 100%;
+      margin-bottom: 10px;
+      border-radius: 4px;
+      text-align: center;
+    }
+    button {
+      background-color: #0f0;
+      color: #000;
+      padding: 10px 20px;
+      font-size: 1.1em;
+      border: none;
+      cursor: pointer;
+      margin-top: 10px;
+      width: 100%;
+      border-radius: 4px;
+      transition: background-color 0.2s;
+    }
+    button:hover {
+      background-color: #0a0;
+    }
+    /* -------------- TABLE STYLES -------------- */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+    th, td {
+      border: 1px solid #0f0;
+      padding: 10px;
+      text-align: center;
+    }
+    /* -------------- MESSAGES & ERRORS -------------- */
+    #error-message, #riddle-error {
+      color: red;
+      font-size: 1em;
+      margin-top: 10px;
+    }
+    /* -------------- COUNTDOWN -------------- */
+    #countdown {
+      color: #0ff;
+      font-size: 1.2em;
+      margin: 10px 0;
+      animation: flicker 2s infinite;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 1) WALLET ENTRY -->
+  <div id="wallet-container" class="container active">
+    <h1>DeFi Dungeon</h1>
+    <p class="ascii-text">
+      Survive the dungeon by solving riddles!<br/>
+      First to reach the final level wins <span style="color:#0ff;">1 SOL</span>.<br/>
+      The dungeon resets every 20 minutes.<br/>
+      Enter your Solana wallet to begin:
+    </p>
+    <input type="text" id="wallet" placeholder="Enter your Solana wallet address" />
+    <button onclick="submitWallet()">Continue</button>
+    <p id="error-message"></p>
+  </div>
+
+  <!-- 2) DUNGEON LEVELS (RIDDLES) -->
+  <div id="dungeon-container" class="container">
+    <h2>Dungeon Progress</h2>
+    <p id="countdown">Time Remaining: 20:00</p>
+    <p class="ascii-text" id="dungeon-level-title"></p>
+    <p id="riddle-text"></p>
+    <input type="text" id="riddle-answer" placeholder="Your answer" />
+    <button onclick="solveRiddle()">Solve Riddle</button>
+    <p id="riddle-error"></p>
+  </div>
+
+  <!-- 3) SCOREBOARD (OTHER PLAYERS) -->
+  <div id="scoreboard-container" class="container">
+    <h3>Dungeon Adventurers</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Wallet</th>
+          <th>Level</th>
+        </tr>
+      </thead>
+      <tbody id="scoreboard-table">
+        <!-- Fake + user rows -->
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 4) RESULTS -->
+  <div id="results-container" class="container">
+    <h2>Dungeon Results</h2>
+    <p id="results-message" style="font-size:1.2em; color:#0ff;"></p>
+    <p class="ascii-text">The dungeon resets soon. Thanks for playing!</p>
+  </div>
+
+  <script>
+    /* ---------------- GLOBAL VARIABLES ---------------- */
+    let userWallet = "";
+    let userLevel = 0; 
+    const MAX_LEVEL = 5;  // e.g. 5 riddles to complete
+    let timeRemaining = 1200; // 20 minutes in seconds
+    let countdownInterval = null;
+
+    // DOM Elements
+    const walletContainer = document.getElementById("wallet-container");
+    const dungeonContainer = document.getElementById("dungeon-container");
+    const scoreboardContainer = document.getElementById("scoreboard-container");
+    const resultsContainer = document.getElementById("results-container");
+
+    const errorMessage = document.getElementById("error-message");
+    const riddleError = document.getElementById("riddle-error");
+    const riddleAnswerInput = document.getElementById("riddle-answer");
+    const riddleTextEl = document.getElementById("riddle-text");
+    const dungeonLevelTitle = document.getElementById("dungeon-level-title");
+    const scoreboardTable = document.getElementById("scoreboard-table");
+    const resultsMessage = document.getElementById("results-message");
+    const countdownEl = document.getElementById("countdown");
+
+    /* ---------------- RIDDLES (LEVELS) ---------------- */
+    // Customize your riddles here:
+    const riddles = [
+      {
+        question: "I'm found in socks, scarves, and mittens;\nOften in the paws of playful kittens.\nWhat am I?",
+        answer: "wool"
+      },
+      {
+        question: "Forward I am heavy, backward I am not.\nWhat am I?",
+        answer: "ton"
+      },
+      {
+        question: "What word of 5 letters has one left\nwhen two are removed?",
+        answer: "stone"
+      },
+      {
+        question: "What belongs to you\nbut others use it more than you do?",
+        answer: "name"
+      },
+      {
+        question: "One in a field, but not a field.\nI'm a magnet for seeds.\nWhat am I?",
+        answer: "scarecrow"
+      }
+    ];
+
+    /* ---------------- FAKE PLAYERS ---------------- */
+    let fakePlayers = [];
+    const NUM_FAKE = 5; // How many fake wallets
+
+    function generateRandomWallet() {
+      const chars = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+      let walletFake = "";
+      const length = Math.floor(Math.random() * 13) + 32; // between 32 and 44
+      for (let i = 0; i < length; i++) {
+        walletFake += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return walletFake;
+    }
+
+    function initFakePlayers() {
+      for (let i = 0; i < NUM_FAKE; i++) {
+        const w = generateRandomWallet();
+        // Start them at level 0 or 1 randomly:
+        let startLevel = Math.floor(Math.random() * 2);
+        fakePlayers.push({ wallet: w, level: startLevel });
+        addPlayerRow(w, startLevel);
+      }
+      // Every X seconds, each fake player might advance
+      setInterval(() => {
+        fakePlayers.forEach(fp => {
+          // 30% chance to level up
+          if (Math.random() < 0.3 && fp.level < MAX_LEVEL) {
+            fp.level++;
+            updatePlayerRow(fp.wallet, fp.level);
+            checkIfDungeonCleared(fp.wallet, fp.level);
+          }
+        });
+      }, 7000); // every 7 seconds
+    }
+
+    /* ---------------- SCOREBOARD UTILS ---------------- */
+    function addPlayerRow(wallet, level) {
+      const row = document.createElement("tr");
+      row.id = "row-" + wallet;
+      
+      const walletCell = document.createElement("td");
+      walletCell.textContent = wallet;
+      const levelCell = document.createElement("td");
+      levelCell.textContent = level;
+      
+      row.appendChild(walletCell);
+      row.appendChild(levelCell);
+      scoreboardTable.appendChild(row);
+    }
+
+    function updatePlayerRow(wallet, newLevel) {
+      const row = document.getElementById("row-" + wallet);
+      if (row) {
+        row.cells[1].textContent = newLevel;
+      }
+    }
+
+    /* ---------------- MAIN FUNCTIONS ---------------- */
+    // 1) Validate wallet, switch to dungeon
+    function submitWallet() {
+      const walletInput = document.getElementById("wallet").value.trim();
+      // Basic Solana wallet regex
+      if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(walletInput)) {
+        userWallet = walletInput;
+        errorMessage.textContent = "";
+        walletContainer.classList.remove("active");
+        dungeonContainer.classList.add("active");
+        scoreboardContainer.classList.add("active");
+        addPlayerRow(userWallet + " (You)", userLevel);
+        initFakePlayers();
+        startTimer();
+        loadLevel();
+      } else {
+        errorMessage.textContent = "Please enter a valid Solana wallet address.";
+      }
+    }
+
+    // 2) Load the current riddle
+    function loadLevel() {
+      if (userLevel >= MAX_LEVEL) {
+        endDungeon();
+      } else {
+        dungeonLevelTitle.textContent = `Dungeon Level: ${userLevel + 1}`;
+        riddleTextEl.textContent = riddles[userLevel].question;
+        riddleAnswerInput.value = "";
+      }
+    }
+
+    // 3) Solve riddle logic
+    function solveRiddle() {
+      const answer = riddleAnswerInput.value.trim().toLowerCase();
+      const correctAnswer = riddles[userLevel].answer.toLowerCase();
+      if (answer === correctAnswer) {
+        userLevel++;
+        updatePlayerRow(userWallet + " (You)", userLevel);
+        riddleError.textContent = "";
+        checkIfDungeonCleared(userWallet + " (You)", userLevel);
+        loadLevel();
+      } else {
+        riddleError.textContent = "Incorrect! Try again.";
+      }
+    }
+
+    // If user or fake hits final level, check for winner
+    function checkIfDungeonCleared(wallet, level) {
+      if (level >= MAX_LEVEL) {
+        // We have a winner
+        endDungeon(wallet);
+      }
+    }
+
+    // 4) Start 20-minute countdown
+    function startTimer() {
+      countdownInterval = setInterval(() => {
+        timeRemaining--;
+        displayTime();
+        if (timeRemaining <= 0) {
+          endDungeon(); // time out
+        }
+      }, 1000);
+    }
+
+    function displayTime() {
+      let minutes = Math.floor(timeRemaining / 60);
+      let seconds = timeRemaining % 60;
+      if (seconds < 10) seconds = "0" + seconds;
+      countdownEl.textContent = `Time Remaining: ${minutes}:${seconds}`;
+    }
+
+    // 5) End dungeon: Show final results
+    function endDungeon(winnerWallet) {
+      clearInterval(countdownInterval);
+      dungeonContainer.classList.remove("active");
+      scoreboardContainer.classList.remove("active");
+      resultsContainer.classList.add("active");
+
+      if (!winnerWallet && timeRemaining > 0) {
+        // This means user finished riddles before time ended
+        winnerWallet = userWallet + " (You)";
+      }
+
+      // Determine if time ran out with no winner
+      if (!winnerWallet && timeRemaining <= 0) {
+        resultsMessage.textContent = "Time's up! Nobody cleared the Dungeon this round.";
+        return;
+      }
+
+      resultsMessage.textContent =
+        (winnerWallet === userWallet + " (You)")
+          ? `You reached the final level first! You win 1 SOL.`
+          : `${winnerWallet} reached the final level first! They claim 1 SOL.`;
+    }
+  </script>
+</body>
+</html>
